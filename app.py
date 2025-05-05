@@ -2,96 +2,87 @@ import streamlit as st
 import pandas as pd
 import random
 
-# CSVファイルの読み込み
+# CSVを読み込む
 @st.cache_data
 def load_questions():
-    return pd.read_csv("questions.csv")
+    # CSVファイルのパスを適切に設定
+    df = pd.read_csv('questions.csv')
+    return df
 
-# 難易度表示（★を数値や記号から変換）
-def render_stars(difficulty):
-    if pd.isna(difficulty):
-        return ""
-    if isinstance(difficulty, str) and "★" in difficulty:
-        return difficulty
-    try:
-        return "★" * int(difficulty)
-    except:
-        return difficulty
+# ゲームの進行管理
+def game_loop(df, mode):
+    score = 0
+    total_questions = len(df)
+    question_idx = 0
 
-# ランダム出題モード
-def random_mode(df):
-    if 'question_index' not in st.session_state:
-        st.session_state.question_index = random.randint(0, len(df) - 1)
-        st.session_state.show_result = False
+    while question_idx < total_questions:
+        question = df.iloc[question_idx]
 
-    question = df.iloc[st.session_state.question_index]
-
-    show_question_block(question)
-
-# 難易度選択モード
-def level_mode(df):
-    level = st.selectbox("難易度を選んでください", ["★", "★★", "★★★"])
-    filtered = df[df["difficulty"].apply(lambda x: render_stars(x) == level)]
-
-    if filtered.empty:
-        st.warning("この難易度の問題はありません。")
-        return
-
-    if 'level_question_index' not in st.session_state:
-        st.session_state.level_question_index = random.randint(0, len(filtered) - 1)
-        st.session_state.show_result = False
-
-    question = filtered.iloc[st.session_state.level_question_index]
-    show_question_block(question, filtered=True)
-
-# 問題の表示と○×の回答処理
-def show_question_block(question, filtered=False):
-    st.markdown("### SNS投稿")
-    st.info(question["post_content"])
-
-    st.markdown(f"**問題**: {question['question']}")
-    st.markdown(f"**難易度**: {render_stars(question['difficulty'])}")
-
-    if pd.notna(question["image_url"]) and isinstance(question["image_url"], str):
-        st.image(question["image_url"], use_column_width=True)
-
-    user_answer = st.radio("○か×かを選んでください", ("○", "×"), key=f"ans_{random.random()}")
-
-    if st.button("決定"):
-        st.session_state.show_result = True
-        st.session_state.selected_answer = user_answer
-
-    if st.session_state.get("show_result", False):
-        correct = question["answer"]
-        if st.session_state.selected_answer == correct:
-            st.success("正解！ポイント +1")
-        else:
-            st.error("不正解！")
-
-        st.markdown(f"**解説**: {question['explanation']}")
-
-        if st.button("次の問題へ"):
-            if filtered:
-                st.session_state.level_question_index = random.randint(0, len(df[df["difficulty"].apply(lambda x: render_stars(x) == render_stars(question['difficulty']))]) - 1)
+        # 投稿文表示
+        st.markdown(f"**投稿文**: {question['post_content']}")
+        
+        # 問題表示
+        st.markdown(f"**問題**: {question['question']}")
+        
+        # 画像があれば表示
+        if pd.notna(question['image_url']):
+            st.image(question['image_url'], use_column_width=True)
+        
+        # ユーザーの回答選択
+        user_answer = st.radio("○か×で答えてください", ['○', '×'], key=f"answer_{question_idx}")
+        
+        if st.button(f'答えを確認 ({question_idx+1}/{total_questions})'):
+            # 正誤判定
+            correct = question['answer'] == user_answer
+            if correct:
+                score += 10  # 正解時は得点加算
+                st.markdown("**正解です！！**")
             else:
-                st.session_state.question_index = random.randint(0, len(df) - 1)
-            st.session_state.show_result = False
-            st.experimental_rerun()
+                st.markdown("**不正解です！！**")
+            
+            # 解説文表示
+            st.markdown(f"**解説**: {question['explanation']}")
+            
+            # 次の問題へ
+            question_idx += 1
 
-# メイン関数
+            if question_idx == total_questions:
+                st.markdown("### ゲーム終了！")
+                st.markdown(f"**総合得点**: {score}点")
+                break
+
+# モード選択
+def mode_selection():
+    mode = st.radio("モード選択", ["ランダムモード", "難易度モード"])
+    return mode
+
+# 難易度フィルタリング
+def filter_by_difficulty(df, difficulty):
+    if difficulty != "全て":
+        return df[df['difficulty'] == difficulty]
+    return df
+
+# メイン
 def main():
-    st.title("🧠 フェイクニュースクイズ")
-    st.markdown("○×で答えるフェイクニュース判定クイズです。")
+    st.title("フェイクニュース発見クイズ")
 
-    global df
+    # モード選択
+    mode = mode_selection()
+
+    # 難易度選択（難易度モードの場合）
+    difficulty = "全て"  # 初期値
+    if mode == "難易度モード":
+        difficulty = st.selectbox("難易度を選択", ["全て", "簡単", "普通", "難しい"])
+
+    # CSVから問題を読み込む
     df = load_questions()
 
-    mode = st.radio("モードを選んでください", ("ランダム出題", "レベル別出題"))
+    # 難易度フィルタリング
+    df_filtered = filter_by_difficulty(df, difficulty)
 
-    if mode == "ランダム出題":
-        random_mode(df)
-    else:
-        level_mode(df)
+    # ゲームスタート
+    if st.button('ゲームスタート'):
+        game_loop(df_filtered, mode)
 
 if __name__ == "__main__":
     main()
