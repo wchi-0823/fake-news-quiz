@@ -2,14 +2,17 @@ import streamlit as st
 import pandas as pd
 import random
 
-# CSVを読み込む
-@st.cache_data
-def load_questions():
-    # CSVファイルのパスを適切に設定
-    df = pd.read_csv('questions.csv')
+# CSVの読み込み
+def load_data():
+    df = pd.read_csv('quiz_data.csv')
     return df
 
-# ゲームの進行管理
+# モード選択
+def select_mode():
+    mode = st.radio("モードを選択してください", ["ランダムモード", "難易度モード"])
+    return mode
+
+# ゲームのループ処理
 def game_loop(df, mode):
     score = 0
     total_questions = len(df)
@@ -29,7 +32,8 @@ def game_loop(df, mode):
             st.image(question['image_url'], use_column_width=True)
         
         # ユーザーの回答選択
-        user_answer = st.radio("○か×で答えてください", ['○', '×'], key=f"answer_{question_idx}")
+        unique_key = f"answer_{question_idx}_{question['question'][:10]}"  # 質問内容の最初の10文字を利用
+        user_answer = st.radio("○か×で答えてください", ['○', '×'], key=unique_key)
         
         if st.button(f'答えを確認 ({question_idx+1}/{total_questions})'):
             # 正誤判定
@@ -51,38 +55,35 @@ def game_loop(df, mode):
                 st.markdown(f"**総合得点**: {score}点")
                 break
 
-# モード選択
-def mode_selection():
-    mode = st.radio("モード選択", ["ランダムモード", "難易度モード"])
-    return mode
+# ランダムモード
+def random_mode(df):
+    st.markdown("### ランダムモード")
+    # 問題をシャッフルしてランダムに出題
+    df_shuffled = df.sample(frac=1).reset_index(drop=True)
+    game_loop(df_shuffled, "ランダムモード")
 
-# 難易度フィルタリング
-def filter_by_difficulty(df, difficulty):
-    if difficulty != "全て":
-        return df[df['difficulty'] == difficulty]
-    return df
+# 難易度モード
+def difficulty_mode(df):
+    st.markdown("### 難易度モード")
+    difficulty = st.selectbox("難易度を選択してください", ["易しい", "普通", "難しい"])
 
-# メイン
+    # 難易度に応じたフィルタリング
+    df_filtered = df[df['difficulty'] == difficulty]
+    game_loop(df_filtered, "難易度モード")
+
+# メイン関数
 def main():
-    st.title("フェイクニュース発見クイズ")
+    # データの読み込み
+    df = load_data()
 
     # モード選択
-    mode = mode_selection()
+    mode = select_mode()
 
-    # 難易度選択（難易度モードの場合）
-    difficulty = "全て"  # 初期値
-    if mode == "難易度モード":
-        difficulty = st.selectbox("難易度を選択", ["全て", "簡単", "普通", "難しい"])
-
-    # CSVから問題を読み込む
-    df = load_questions()
-
-    # 難易度フィルタリング
-    df_filtered = filter_by_difficulty(df, difficulty)
-
-    # ゲームスタート
-    if st.button('ゲームスタート'):
-        game_loop(df_filtered, mode)
+    # モードに応じてゲーム開始
+    if mode == "ランダムモード":
+        random_mode(df)
+    elif mode == "難易度モード":
+        difficulty_mode(df)
 
 if __name__ == "__main__":
     main()
