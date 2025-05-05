@@ -2,110 +2,96 @@ import streamlit as st
 import pandas as pd
 import random
 
-# CSVの読み込み
+# CSVファイルの読み込み
+@st.cache_data
 def load_questions():
-    df = pd.read_csv("questions.csv")
-    return df
+    return pd.read_csv("questions.csv")
 
-# 数値を星（★）に変換
-def get_stars(difficulty):
-    """難易度に基づいて星の数を返す"""
-    return "★" * difficulty
+# 難易度表示（★を数値や記号から変換）
+def render_stars(difficulty):
+    if pd.isna(difficulty):
+        return ""
+    if isinstance(difficulty, str) and "★" in difficulty:
+        return difficulty
+    try:
+        return "★" * int(difficulty)
+    except:
+        return difficulty
 
-# ランダムモード
-def random_mode(questions_df):
-    # ランダムに問題を選択
-    question = random.choice(questions_df.to_dict(orient="records"))
-    
-    # SNS風の投稿表示
-    st.write(f"**SNS投稿**: {question['post_content']}")
-    
-    # 問題文表示
-    st.write(f"**問題**: {question['question_text']}")
-    
-    # 難易度表示（星★で表示）
-    stars = get_stars(int(question['difficulty']))  # 数値を★に変換
-    st.write(f"**難易度**: {stars}")
+# ランダム出題モード
+def random_mode(df):
+    if 'question_index' not in st.session_state:
+        st.session_state.question_index = random.randint(0, len(df) - 1)
+        st.session_state.show_result = False
 
-    # 画像の表示（URLがあれば）
-    if pd.notna(question['image_url']):
-        st.image(question['image_url'], caption="問題に関連する画像", use_column_width=True)
-    
-    # ユーザーの回答選択
-    answer = st.radio("答えを選んでください:", ("◯", "✕"))
-    
-    if answer:
-        # 正誤判定
-        if answer == question['answer']:
-            st.success("正解！")
-        else:
-            st.error("不正解...")
-        
-        # 解説表示
-        st.write(f"**解説**: {question['explanation']}")
-        
-        # 次の問題へボタン
-        if st.button("次の問題へ"):
-            random_mode(questions_df)
+    question = df.iloc[st.session_state.question_index]
 
-# レベル別モード
-def level_mode(questions_df, level):
-    # レベル別に問題をフィルタリング
-    filtered_questions = questions_df[questions_df['difficulty'] == level]
-    
-    # 問題が無ければ、メッセージを表示
-    if filtered_questions.empty:
-        st.write("このレベルには問題がありません。")
+    show_question_block(question)
+
+# 難易度選択モード
+def level_mode(df):
+    level = st.selectbox("難易度を選んでください", ["★", "★★", "★★★"])
+    filtered = df[df["difficulty"].apply(lambda x: render_stars(x) == level)]
+
+    if filtered.empty:
+        st.warning("この難易度の問題はありません。")
         return
 
-    # ランダムに問題を選択
-    question = random.choice(filtered_questions.to_dict(orient="records"))
-    
-    # SNS風の投稿表示
-    st.write(f"**SNS投稿**: {question['post_content']}")
-    
-    # 問題文表示
-    st.write(f"**問題**: {question['question_text']}")
-    
-    # 難易度表示（星★で表示）
-    stars = get_stars(int(question['difficulty']))  # 数値を★に変換
-    st.write(f"**難易度**: {stars}")
+    if 'level_question_index' not in st.session_state:
+        st.session_state.level_question_index = random.randint(0, len(filtered) - 1)
+        st.session_state.show_result = False
 
-    # 画像の表示（URLがあれば）
-    if pd.notna(question['image_url']):
-        st.image(question['image_url'], caption="問題に関連する画像", use_column_width=True)
-    
-    # ユーザーの回答選択
-    answer = st.radio("答えを選んでください:", ("◯", "✕"))
-    
-    if answer:
-        # 正誤判定
-        if answer == question['answer']:
-            st.success("正解！")
+    question = filtered.iloc[st.session_state.level_question_index]
+    show_question_block(question, filtered=True)
+
+# 問題の表示と○×の回答処理
+def show_question_block(question, filtered=False):
+    st.markdown("### SNS投稿")
+    st.info(question["post_content"])
+
+    st.markdown(f"**問題**: {question['question']}")
+    st.markdown(f"**難易度**: {render_stars(question['difficulty'])}")
+
+    if pd.notna(question["image_url"]) and isinstance(question["image_url"], str):
+        st.image(question["image_url"], use_column_width=True)
+
+    user_answer = st.radio("○か×かを選んでください", ("○", "×"), key=f"ans_{random.random()}")
+
+    if st.button("決定"):
+        st.session_state.show_result = True
+        st.session_state.selected_answer = user_answer
+
+    if st.session_state.get("show_result", False):
+        correct = question["answer"]
+        if st.session_state.selected_answer == correct:
+            st.success("正解！ポイント +1")
         else:
-            st.error("不正解...")
-        
-        # 解説表示
-        st.write(f"**解説**: {question['explanation']}")
-        
-        # 次の問題へボタン
+            st.error("不正解！")
+
+        st.markdown(f"**解説**: {question['explanation']}")
+
         if st.button("次の問題へ"):
-            level_mode(questions_df, level)
+            if filtered:
+                st.session_state.level_question_index = random.randint(0, len(df[df["difficulty"].apply(lambda x: render_stars(x) == render_stars(question['difficulty']))]) - 1)
+            else:
+                st.session_state.question_index = random.randint(0, len(df) - 1)
+            st.session_state.show_result = False
+            st.experimental_rerun()
 
-# メインアプリケーション
+# メイン関数
 def main():
-    # CSVデータの読み込み
-    questions_df = load_questions()
+    st.title("🧠 フェイクニュースクイズ")
+    st.markdown("○×で答えるフェイクニュース判定クイズです。")
 
-    # モード選択
-    mode = st.radio("モードを選んでください", ("ランダム", "レベル別"))
-    
-    if mode == "ランダム":
-        random_mode(questions_df)
-    elif mode == "レベル別":
-        level = st.selectbox("レベルを選んでください", ("1", "2", "3"))
-        level_mode(questions_df, int(level))
+    global df
+    df = load_questions()
 
-# アプリ実行
+    mode = st.radio("モードを選んでください", ("ランダム出題", "レベル別出題"))
+
+    if mode == "ランダム出題":
+        random_mode(df)
+    else:
+        level_mode(df)
+
 if __name__ == "__main__":
     main()
